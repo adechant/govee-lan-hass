@@ -17,12 +17,14 @@ from homeassistant.components.light import (
     ATTR_BRIGHTNESS_PCT,
     ATTR_COLOR_TEMP,
     ATTR_COLOR_TEMP_KELVIN,
+    ATTR_EFFECT,
     ATTR_HS_COLOR,
     ATTR_RGB_COLOR,
     SUPPORT_BRIGHTNESS,
     SUPPORT_COLOR,
     SUPPORT_COLOR_TEMP,
     LightEntity,
+    LightEntityFeature,
     PLATFORM_SCHEMA,
 )
 import homeassistant.helpers.config_validation as cv
@@ -45,6 +47,7 @@ from govee_led_wez import (
     GoveeColor,
     GoveeHttpDeviceDefinition,
     GoveeLanDeviceDefinition,
+    GoveeScene,
 )
 
 # Serialize async_update calls, even though they are async capable.
@@ -199,6 +202,7 @@ class GoveLightEntity(LightEntity):
     _govee_device: GoveeDevice
     _attr_min_color_temp_kelvin = 2000
     _attr_max_color_temp_kelvin = 9000
+    _attr_supported_features = LightEntityFeature.EFFECT
     _attr_supported_color_modes = {
         ColorMode.BRIGHTNESS,
         ColorMode.COLOR_TEMP,
@@ -253,6 +257,16 @@ class GoveLightEntity(LightEntity):
         """Return if the entity should be enabled when first added to the entity registry."""
         return True
 
+    @property
+    def effect(self) -> str | None:
+        """Return the current effect of the light."""
+        return self._govee_device.state.scene
+
+    @property
+    def effect_list(self) -> list[str]:
+        """Return the list of supported effects."""
+        return GoveeScene.scenes()
+
     def _govee_device_updated(self):
         device = self._govee_device
         state = device.state
@@ -277,15 +291,20 @@ class GoveLightEntity(LightEntity):
                 self._attr_color_temp = None
                 self._attr_color_mode = ColorMode.RGB
                 self._attr_rgb_color = state.color.as_tuple()
+            """TODO add scene update"""
 
             self._attr_brightness = max(
                 min(int(255 * state.brightness_pct / 100), 255), 0
             )
             self._attr_is_on = state.turned_on
 
-        self._attr_extra_state_attributes["http_enabled"] = device.http_definition is not None
+        self._attr_extra_state_attributes["http_enabled"] = (
+            device.http_definition is not None
+        )
         self._attr_extra_state_attributes["ble_enabled"] = device.ble_device is not None
-        self._attr_extra_state_attributes["lan_enabled"] = device.lan_definition is not None
+        self._attr_extra_state_attributes["lan_enabled"] = (
+            device.lan_definition is not None
+        )
 
         if self.entity_id:
             self.schedule_update_ha_state()
@@ -342,6 +361,9 @@ class GoveLightEntity(LightEntity):
                     self._govee_device, color_temp_kelvin
                 )
                 turn_on = False
+            elif ATTR_EFFECT in kwargs:
+                if scene := GoveeScene.from_name(kwargs.pop(ATTR_EFFECT)):
+                    await self._govee_controller.set_scene(self._govee_device, scene)
 
             if turn_on:
                 await self._govee_controller.set_power_state(self._govee_device, True)
@@ -419,7 +441,9 @@ class GoveLightEntity(LightEntity):
             # await asyncio.sleep(random.uniform(0.0, 3.2))
             await self._govee_controller.update_device_state(self._govee_device)
             self._attr_available = True
-            self._attr_extra_state_attributes["update_status"] = f"ok at {current_time_string}"
+            self._attr_extra_state_attributes[
+                "update_status"
+            ] = f"ok at {current_time_string}"
             self._attr_extra_state_attributes["timeout_count"] = 0
         except (asyncio.CancelledError, asyncio.TimeoutError) as exc:
             _LOGGER.debug(
@@ -428,8 +452,12 @@ class GoveLightEntity(LightEntity):
                 self.entity_id,
                 exc_info=exc,
             )
-            timeout_count = self._attr_extra_state_attributes.get("timeout_count", 0) + 1
-            self._attr_extra_state_attributes["update_status"] = f"timed out at {current_time_string}"
+            timeout_count = (
+                self._attr_extra_state_attributes.get("timeout_count", 0) + 1
+            )
+            self._attr_extra_state_attributes[
+                "update_status"
+            ] = f"timed out at {current_time_string}"
             self._attr_extra_state_attributes["timeout_count"] = timeout_count
             if timeout_count > 1:
                 self._attr_available = False
