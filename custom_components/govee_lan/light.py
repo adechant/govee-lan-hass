@@ -48,6 +48,7 @@ from govee_led_wez import (
     GoveeHttpDeviceDefinition,
     GoveeLanDeviceDefinition,
     GoveeScene,
+    GoveeSceneList,
 )
 
 # Serialize async_update calls, even though they are async capable.
@@ -151,6 +152,7 @@ async def async_setup_entry(
         controller.set_http_api_key(api_key)
         try:
             await controller.query_http_devices()
+            # await controller.query_http_scenes()
         except RuntimeError as exc:
             # The consequence of this is that the user-friendly names
             # won't be populated immediately for devices that we
@@ -260,12 +262,14 @@ class GoveLightEntity(LightEntity):
     @property
     def effect(self) -> str | None:
         """Return the current effect of the light."""
-        return self._govee_device.state.scene
+        if self._govee_device.state.scene is None:
+            return None
+        return self._govee_device.state.scene.name
 
     @property
     def effect_list(self) -> list[str]:
         """Return the list of supported effects."""
-        return GoveeScene.scenes()
+        return GoveeSceneList.scene_names()
 
     def _govee_device_updated(self):
         device = self._govee_device
@@ -362,7 +366,7 @@ class GoveLightEntity(LightEntity):
                 )
                 turn_on = False
             elif ATTR_EFFECT in kwargs:
-                if scene := GoveeScene.from_name(kwargs.pop(ATTR_EFFECT)):
+                if scene := GoveeSceneList.from_name(kwargs.pop(ATTR_EFFECT)):
                     await self._govee_controller.set_scene(self._govee_device, scene)
 
             if turn_on:
