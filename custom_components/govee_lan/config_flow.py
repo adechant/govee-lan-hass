@@ -60,7 +60,7 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
             CONF_EMAIL, self.config_entry.data.get(CONF_EMAIL, None)
         )
         current_password = self.config_entry.options.get(
-            CONF_PASSWORD, self.config_entry.data.get(CONF_API_KEY, None)
+            CONF_PASSWORD, self.config_entry.data.get(CONF_PASSWORD, None)
         )
 
         errors = {}

@@ -29,7 +29,7 @@ from homeassistant.components.light import (
 )
 import homeassistant.helpers.config_validation as cv
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_API_KEY, Platform
+from homeassistant.const import CONF_API_KEY, CONF_EMAIL, CONF_PASSWORD, Platform
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo, Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -60,7 +60,13 @@ PARALLEL_UPDATES = 1
 _LOGGER = logging.getLogger(__name__)
 
 # This is read by HA
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({vol.Optional(CONF_API_KEY): cv.string})
+PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+    {
+        vol.Optional(CONF_API_KEY): cv.string,
+        vol.Optional(CONF_EMAIL): cv.string,
+        vol.Optional(CONF_PASSWORD): cv.string,
+    }
+)
 
 # TODO: move to option flow
 HTTP_POLL_INTERVAL = 600
@@ -139,6 +145,8 @@ async def async_setup_entry(
     hass.data[DOMAIN]["registry"] = registry
 
     api_key = entry.options.get(CONF_API_KEY, entry.data.get(CONF_API_KEY, None))
+    email = entry.options.get(CONF_EMAIL, entry.data.get(CONF_EMAIL, None))
+    password = entry.options.get(CONF_PASSWORD, entry.data.get(CONF_PASSWORD, None))
 
     entry.async_on_unload(controller.stop)
 
@@ -152,13 +160,26 @@ async def async_setup_entry(
         controller.set_http_api_key(api_key)
         try:
             await controller.query_http_devices()
-            # await controller.query_http_scenes()
         except RuntimeError as exc:
             # The consequence of this is that the user-friendly names
             # won't be populated immediately for devices that we
             # do manage to discover via the LAN API.
             _LOGGER.error(
-                "failed to get device list from Govee HTTP API. Will retry in the background",
+                "Failed to get device list from Govee HTTP API. Will retry in the background",
+                exc_info=exc,
+            )
+
+        try:
+            if email and password:
+                controller.set_aws_email(email)
+                controller.set_aws_password(password)
+                # await controller.query_http_scenes()
+        except RuntimeError as exc:
+            # The consequence of this is that the user-friendly names
+            # won't be populated immediately for devices that we
+            # do manage to discover via the LAN API.
+            _LOGGER.error(
+                "Failed to get scenes from Govee AWS. Will retry in the background",
                 exc_info=exc,
             )
 
@@ -167,6 +188,11 @@ async def async_setup_entry(
             controller.start_http_poller(interval)
 
         hass.loop.create_task(http_poller(HTTP_POLL_INTERVAL))
+
+    if email is not None and password is not None:
+        controller.set_aws_email(email)
+        controller.set_aws_password(password)
+        await controller.start_aws_listener()
 
     interfaces = await async_get_interfaces(hass)
     controller.start_lan_poller(interfaces)
